@@ -11,27 +11,37 @@ wss.on("connection", (ws) => {
     console.log("🔌 Client connected");
     ws.on("message", async (data) => {
         try {
-            const parsed = JSON.parse(data.toString());
+            const raw = data.toString();
+            console.log("📥 Raw message received:", raw);
+            const parsed = JSON.parse(raw);
+            console.log("🧾 Parsed message:", parsed);
             // Handle registration
             if (parsed.type === "register") {
-                const { roomId, userId } = parsed;
+                if (!parsed.roomId || !parsed.userId) {
+                    console.error("❌ Missing roomId or userId in register payload:", parsed);
+                    return;
+                }
+                const roomId = parsed.roomId;
+                const numericUserId = Number(parsed.userId);
+                console.log("🔍 Registering for room:", roomId, "user:", numericUserId);
                 const room = await prisma.roomId.findUnique({
                     where: { id: roomId },
                     include: { users: true },
                 });
-                const isAuthorized = room?.users.some((u) => u.id === userId);
+                console.log("🧠 Room found:", room);
+                const isAuthorized = room?.users.some((u) => u.id === numericUserId);
                 if (!isAuthorized) {
                     ws.send(JSON.stringify({ type: "error", message: "Unauthorized user or room" }));
                     return;
                 }
                 // Save registration info
-                activeClients.set(ws, { userId, roomId });
+                activeClients.set(ws, { userId: numericUserId, roomId });
                 // Update room-user map
                 if (!roomUserMap.has(roomId)) {
                     roomUserMap.set(roomId, new Set());
                 }
-                roomUserMap.get(roomId).add(userId);
-                ws.send(JSON.stringify({ type: "register-success", roomId, userId }));
+                roomUserMap.get(roomId).add(numericUserId);
+                ws.send(JSON.stringify({ type: "register-success", roomId, userId: numericUserId }));
                 return;
             }
             // Handle message only if registered
@@ -42,13 +52,14 @@ wss.on("connection", (ws) => {
                     return;
                 }
                 const { roomId, user_id, text } = parsed;
+                const numericUserId = Number(user_id);
                 // Validate room match
-                if (roomId !== clientMeta.roomId || user_id !== clientMeta.userId) {
+                if (roomId !== clientMeta.roomId || numericUserId !== clientMeta.userId) {
                     ws.send(JSON.stringify({ type: "error", message: "Invalid room or user context" }));
                     return;
                 }
                 const room = await prisma.roomId.findUnique({
-                    where: { id: roomId }
+                    where: { id: roomId },
                 });
                 if (!room) {
                     ws.send(JSON.stringify({ type: "error", message: "Room not found" }));
@@ -59,7 +70,7 @@ wss.on("connection", (ws) => {
                     data: {
                         message: text,
                         createdAt: new Date(),
-                        userId: user_id,
+                        userId: numericUserId,
                         roomId: roomId,
                     },
                 });
@@ -80,7 +91,7 @@ wss.on("connection", (ws) => {
             }
         }
         catch (err) {
-            console.error(" Error:", err);
+            console.error("❌ Server error:", err);
             ws.send(JSON.stringify({ type: "error", message: "Server error" }));
         }
     });
@@ -97,8 +108,8 @@ wss.on("connection", (ws) => {
             }
         }
         activeClients.delete(ws);
-        console.log(" Client disconnected");
+        console.log("❎ Client disconnected");
     });
 });
-console.log(` WebSocket server running on ws://localhost:${PORT}`);
+console.log(`🚀 WebSocket server running on ws://localhost:${PORT}`);
 //# sourceMappingURL=index.js.map
